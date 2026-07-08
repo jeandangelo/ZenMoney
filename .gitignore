@@ -1,0 +1,11 @@
+node_modules/
+.expo/
+dist/
+web-build/
+
+# Secretos: cada entorno define su .env a partir de .env.example
+.env
+
+# macOS / editores
+.DS_Store
+*.log
