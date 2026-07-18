@@ -26,8 +26,14 @@ $tags = '<link rel="manifest" href="/ZenMoney/manifest.json"/>' +
         '<link rel="apple-touch-icon" href="/ZenMoney/icons/icon-512.png"/>' +
         '<meta name="apple-mobile-web-app-capable" content="yes"/>' +
         '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>' +
-        '<meta name="apple-mobile-web-app-title" content="ZenMoney"/>'
-(Get-Content $index -Raw) -replace '</head>', "$tags</head>" | Set-Content $index -Encoding utf8 -NoNewline
+        '<meta name="apple-mobile-web-app-title" content="ZenMoney"/>' +
+        # Fondo negro a nivel de documento: sin esto, la franja del notch del
+        # iPhone (detrás de la barra de estado) se ve blanca en la PWA.
+        '<style>html,body{background-color:#0D0D0D}</style>'
+$html = Get-Content $index -Raw
+# viewport-fit=cover: que el contenido pinte también detrás del notch.
+$html = $html -replace 'name="viewport" content="([^"]*)"', 'name="viewport" content="$1, viewport-fit=cover"'
+$html -replace '</head>', "$tags</head>" | Set-Content $index -Encoding utf8 -NoNewline
 
 # SPA fallback: GitHub Pages sirve 404.html para rutas desconocidas
 Copy-Item dist\index.html dist\404.html -Force
