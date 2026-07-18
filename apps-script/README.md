@@ -4,11 +4,19 @@ Extractor **tonto**: lee correos del banco, extrae monto/tipo/comercio con
 regex deterministas y hace POST a la Edge Function `ingest-email-tx`. Cero
 lógica de negocio aquí — eso vive en Supabase.
 
+## Cuenta de Gmail (decisión jul-2026)
+
+El script vive en **jeandangelon@gmail.com** (ahí llegan los correos de
+BancoEstado y la mayoría de las cuentas). Lo que llegue a otras casillas
+(p. ej. MercadoPago → jeandangelous.90@) Jean lo redirige con un filtro de
+reenvío de Gmail o cambiando el correo en el servicio. Una sola instalación,
+un solo trigger.
+
 ## Configurar clasp (versionar el script en este repo)
 
 ```powershell
 npm i -g @google/clasp
-clasp login                              # cuenta de Gmail de Jean
+clasp login                              # jeandangelon@gmail.com
 clasp create --type standalone --title "ZenMoney Ingesta" --rootDir apps-script
 # clasp create genera apps-script/.clasp.json con el scriptId → GITIGNOREADO
 clasp push                               # sube src/ + appsscript.json
@@ -36,6 +44,14 @@ clasp pull                               # baja cambios hechos en el editor web
 
 ## Estado de los parsers
 
-⚠ **PENDIENTES de correos reales.** Cada parser retorna `null` hasta que se
-escriban sus regex sobre 1-2 correos reales por banco aportados por Jean
-(con datos sensibles tachados). No se inventan formatos de memoria.
+Escritos y probados sobre correos reales (jul-2026):
+
+- ✅ BancoEstado · compra con débito (gasto, comercio del voucher)
+- ✅ BancoEstado · TEF enviada (gasto, destinatario como comercio)
+- ✅ MercadoPago · transferencia enviada (gasto; si es a cuenta propia,
+  entra POR REVISAR y Jean decide — refinamiento futuro)
+- ⏳ BancoEstado · recepción de dinero (ingreso) — falta correo de ejemplo
+- ⏳ MercadoPago · pagos/compras — falta correo de ejemplo
+- ⏳ Tenpo y Banco de Chile — faltan correos de ejemplo
+
+Regla: nunca inventar formatos de memoria; todo regex nace de un correo real.
