@@ -28,16 +28,15 @@ create table if not exists public.fin_money_accounts (
   created_at  timestamptz not null default now()
 );
 
--- "Cuentas" (de propósito): para qué es la plata. Opcionalmente ligadas a una
--- cuenta digital y con monto propuesto definido por el usuario (nunca sugerido).
+-- "Cuentas" (de propósito) = SOBRES: para qué es la plata. El monto propuesto
+-- es una referencia mensual definida por el usuario (nunca sugerida por la app).
 create table if not exists public.fin_budget_accounts (
-  id                       uuid primary key default gen_random_uuid(),
-  user_id                  uuid not null default auth.uid() references auth.users(id) on delete cascade,
-  nombre                   text not null,
-  linked_money_account_id  uuid references public.fin_money_accounts(id) on delete set null,
-  monto_propuesto          integer check (monto_propuesto is null or monto_propuesto >= 0),
-  activa                   boolean not null default true,
-  created_at               timestamptz not null default now()
+  id               uuid primary key default gen_random_uuid(),
+  user_id          uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  nombre           text not null,
+  monto_propuesto  integer check (monto_propuesto is null or monto_propuesto >= 0),
+  activa           boolean not null default true,
+  created_at       timestamptz not null default now()
 );
 
 -- Transacciones: la ÚNICA fuente de verdad. Montos enteros en CLP.
@@ -79,11 +78,28 @@ create table if not exists public.fin_merchant_rules (
   unique (user_id, patron_comercio)
 );
 
+-- Asignaciones: destinar plata del "disponible sin asignar" a un sobre ANTES
+-- de gastarla. NO son transacciones: la plata no se mueve de ninguna cuenta
+-- digital y el patrimonio no cambia — solo cambia de etiqueta.
+-- monto > 0 asigna al sobre; monto < 0 devuelve plata al disponible.
+-- Corregir un error se hace BORRANDO la fila (los saldos se recalculan solos).
+create table if not exists public.fin_budget_assignments (
+  id                 uuid primary key default gen_random_uuid(),
+  user_id            uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  fecha              date not null default current_date,
+  monto              integer not null check (monto <> 0),
+  budget_account_id  uuid not null references public.fin_budget_accounts(id) on delete cascade,
+  nota               text,
+  created_at         timestamptz not null default now()
+);
+
 -- Índices para las consultas del dashboard e historial.
 create index if not exists fin_tx_user_fecha_idx     on public.fin_transactions (user_id, fecha desc, created_at desc);
 create index if not exists fin_tx_money_idx          on public.fin_transactions (money_account_id);
 create index if not exists fin_tx_money_destino_idx  on public.fin_transactions (money_account_destino_id);
 create index if not exists fin_tx_budget_idx         on public.fin_transactions (budget_account_id);
+create index if not exists fin_assign_user_fecha_idx on public.fin_budget_assignments (user_id, fecha desc, created_at desc);
+create index if not exists fin_assign_budget_idx     on public.fin_budget_assignments (budget_account_id);
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 2. RLS: cada usuario solo accede a sus propias filas
@@ -95,6 +111,7 @@ alter table public.fin_money_accounts  enable row level security;
 alter table public.fin_budget_accounts enable row level security;
 alter table public.fin_transactions    enable row level security;
 alter table public.fin_merchant_rules  enable row level security;
+alter table public.fin_budget_assignments enable row level security;
 
 drop policy if exists "fin_money_accounts_own"  on public.fin_money_accounts;
 create policy "fin_money_accounts_own" on public.fin_money_accounts
@@ -110,6 +127,10 @@ create policy "fin_transactions_own" on public.fin_transactions
 
 drop policy if exists "fin_merchant_rules_own" on public.fin_merchant_rules;
 create policy "fin_merchant_rules_own" on public.fin_merchant_rules
+  for all using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
+
+drop policy if exists "fin_budget_assignments_own" on public.fin_budget_assignments;
+create policy "fin_budget_assignments_own" on public.fin_budget_assignments
   for all using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -148,25 +169,71 @@ from public.fin_v_money_saldos
 where activa
 group by user_id;
 
--- Estado del mes corriente por cuenta de propósito (gastado vs propuesto).
-create or replace view public.fin_v_budget_mes
+-- ── Migración modelo de sobres (jul-2026) ────────────────────────────────────
+-- Con sobres, ligar una cuenta de propósito a un banco pierde sentido: los
+-- sobres viven sobre el patrimonio TOTAL, no sobre una cuenta digital.
+-- La vista vieja se elimina primero porque depende de la columna.
+drop view if exists public.fin_v_budget_mes;
+alter table public.fin_budget_accounts
+  drop column if exists linked_money_account_id;
+
+-- SOBRES: fuente del dashboard. Saldo de un sobre = asignado − gastado,
+-- SIEMPRE calculado aquí (invariante #1: ningún saldo se almacena en filas).
+-- Un sobre puede quedar negativo (gastó más de lo asignado): la app lo
+-- muestra en rojo, informa, y nunca bloquea.
+-- Los "lateral" son subconsultas que se evalúan por cada sobre (como un
+-- for-each en SQL); "filter (where …)" acota la misma suma al mes corriente
+-- sin recorrer la tabla dos veces.
+create or replace view public.fin_v_sobres
   with (security_invoker = true) as
 select
   ba.id,
   ba.user_id,
   ba.nombre,
-  ba.linked_money_account_id,
   ba.monto_propuesto,
   ba.activa,
-  coalesce((
-    select sum(t.monto)
-    from public.fin_transactions t
-    where t.budget_account_id = ba.id
-      and t.tipo = 'gasto'
-      and t.fecha >= date_trunc('month', current_date)::date
-      and t.fecha <  (date_trunc('month', current_date) + interval '1 month')::date
-  ), 0)::bigint as gastado_mes
-from public.fin_budget_accounts ba;
+  asg.asignado_total,
+  asg.asignado_mes,
+  gto.gastado_total,
+  gto.gastado_mes,
+  (asg.asignado_total - gto.gastado_total)::bigint as saldo_sobre
+from public.fin_budget_accounts ba
+cross join lateral (
+  select
+    coalesce(sum(a.monto), 0)::bigint as asignado_total,
+    coalesce(sum(a.monto) filter (
+      where a.fecha >= date_trunc('month', current_date)::date
+        and a.fecha <  (date_trunc('month', current_date) + interval '1 month')::date
+    ), 0)::bigint as asignado_mes
+  from public.fin_budget_assignments a
+  where a.budget_account_id = ba.id
+) asg
+cross join lateral (
+  select
+    coalesce(sum(t.monto), 0)::bigint as gastado_total,
+    coalesce(sum(t.monto) filter (
+      where t.fecha >= date_trunc('month', current_date)::date
+        and t.fecha <  (date_trunc('month', current_date) + interval '1 month')::date
+    ), 0)::bigint as gastado_mes
+  from public.fin_transactions t
+  where t.budget_account_id = ba.id
+    and t.tipo = 'gasto'
+) gto;
+
+-- DISPONIBLE SIN ASIGNAR: el número central del modelo. Todo lo que el
+-- usuario tiene menos lo que ya destinó a sobres. Invariante verificable:
+-- disponible + suma(saldos de sobres) = patrimonio, siempre.
+create or replace view public.fin_v_disponible
+  with (security_invoker = true) as
+select
+  p.user_id,
+  (p.total - coalesce(s.suma_sobres, 0))::bigint as disponible
+from public.fin_v_patrimonio p
+left join (
+  select user_id, sum(saldo_sobre) as suma_sobres
+  from public.fin_v_sobres
+  group by user_id
+) s on s.user_id = p.user_id;
 
 -- Historial mensual por cuenta de propósito (evolución mes a mes).
 create or replace view public.fin_v_budget_historial
@@ -190,4 +257,7 @@ group by t.user_id, t.budget_account_id, ba.nombre, date_trunc('month', t.fecha)
 --    loguéate con él en la app y confirma que ve todo vacío.
 -- 3. Traspaso Chile→FAN: registra uno y confirma que fin_v_patrimonio.total
 --    no cambia (solo se mueve saldo entre cuentas en fin_v_money_saldos).
+-- 4. Sobres: asignar NO cambia el patrimonio (baja disponible, sube sobre);
+--    gastar con sobre baja patrimonio y sobre pero NO el disponible.
+--    En todo momento: disponible + suma(saldo_sobre) = patrimonio.
 -- =============================================================================
