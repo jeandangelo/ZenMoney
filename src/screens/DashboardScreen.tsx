@@ -24,19 +24,22 @@ const DashboardScreen = ({ navigation }: any) => {
   const [moneyAccounts, setMoneyAccounts] = useState<MoneyAccount[]>([]);
   const [sobres, setSobres] = useState<Sobre[]>([]);
   const [disponible, setDisponible] = useState(0);
+  const [porRevisar, setPorRevisar] = useState(0);
   const [cargando, setCargando] = useState(true);
   const [refrescando, setRefrescando] = useState(false);
 
   const cargar = useCallback(async () => {
     try {
-      const [mas, sbs, disp] = await Promise.all([
+      const [mas, sbs, disp, pend] = await Promise.all([
         api.getMoneyAccounts(),
         api.getSobres(),
         api.getDisponible(),
+        api.getPendingReviewCount(),
       ]);
       setMoneyAccounts(mas.filter((m) => m.activa));
       setSobres(sbs.filter((s) => s.activa));
       setDisponible(disp);
+      setPorRevisar(pend);
     } catch (err: any) {
       showAlert('Error cargando datos', err.message);
     } finally {
@@ -126,6 +129,18 @@ const DashboardScreen = ({ navigation }: any) => {
                 <Text style={[GLOBAL_STYLES.primaryButtonText, { color: ZM_COLORS.GOLD }]}>ASIGNAR</Text>
               </TouchableOpacity>
             </View>
+            {/* Aviso discreto de movimientos de correo sin categorizar */}
+            {porRevisar > 0 && (
+              <TouchableOpacity
+                style={[GLOBAL_STYLES.card, { marginTop: 12, marginBottom: 0, borderColor: ZM_COLORS.EXPENSE }]}
+                onPress={() => navigation.navigate('History', { filtro: 'revisar' })}
+              >
+                <Text style={{ color: ZM_COLORS.EXPENSE, fontFamily: 'monospace', fontSize: 13, letterSpacing: 1 }}>
+                  ✉ {porRevisar} {porRevisar === 1 ? 'MOVIMIENTO' : 'MOVIMIENTOS'} POR REVISAR →
+                </Text>
+              </TouchableOpacity>
+            )}
+
             <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
               <TouchableOpacity
                 style={[GLOBAL_STYLES.primaryButton, { flex: 1, backgroundColor: ZM_COLORS.DARK_GRAY, borderColor: ZM_COLORS.BORDER }]}
