@@ -6,6 +6,9 @@ web-build/
 # Secretos: cada entorno define su .env a partir de .env.example
 .env
 
+# clasp: el scriptId es privado (usar .clasp.json.example como plantilla)
+apps-script/.clasp.json
+
 # macOS / editores
 .DS_Store
 *.log
