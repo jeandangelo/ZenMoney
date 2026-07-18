@@ -147,6 +147,13 @@ const AddTransactionScreen = ({ navigation, route }: any) => {
       };
       if (editando) {
         await api.updateTransaction(editando.id, tx);
+        // Corregir = enseñar: si el movimiento vino por correo y quedó con
+        // sobre asignado, se resuelve la revisión y se aprende la regla
+        // comercio→sobre para que el próximo llegue ya categorizado.
+        // (Solo hacia adelante: los movimientos pasados no se tocan.)
+        if (editando.source === 'email' && tx.budget_account_id) {
+          await api.resolveReview(editando.id, tx.budget_account_id, tx.comercio);
+        }
       } else {
         await api.createTransaction(tx);
         await AsyncStorage.setItem(LAST_MONEY_KEY, moneyId);
