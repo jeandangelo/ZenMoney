@@ -2,5 +2,8 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true
-  }
+  },
+  // Las Edge Functions son código Deno (globals propios): se validan al
+  // desplegarlas con la CLI de Supabase, no con el tsc de la app.
+  "exclude": ["node_modules", "supabase/functions"]
 }

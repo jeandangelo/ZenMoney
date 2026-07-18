@@ -218,4 +218,41 @@ export const api = {
     const { error } = await supabase.from('fin_transactions').delete().eq('id', id);
     if (error) throw error;
   },
+
+  // ── Revisión de movimientos ingresados por correo (Fase B) ─────────────────
+  // Corregir = enseñar: al asignar cuenta de propósito a un movimiento de
+  // correo, se resuelve la revisión Y se aprende la regla comercio→sobre para
+  // que el próximo correo del mismo comercio llegue ya categorizado.
+  // La regla aplica solo hacia adelante: NUNCA se recategorizan movimientos
+  // pasados por cuenta de la app.
+  resolveReview: async (txId: string, budgetAccountId: string, comercio: string | null) => {
+    const { error } = await supabase
+      .from('fin_transactions')
+      .update({ budget_account_id: budgetAccountId, needs_review: false })
+      .eq('id', txId);
+    if (error) throw error;
+
+    const patron = comercio?.trim().toUpperCase();
+    if (patron) {
+      // upsert sobre unique (user_id, patron_comercio): si la regla existe,
+      // se actualiza el sobre destino; si no, se crea.
+      const { error: errRegla } = await supabase
+        .from('fin_merchant_rules')
+        .upsert(
+          { patron_comercio: patron, budget_account_id: budgetAccountId },
+          { onConflict: 'user_id,patron_comercio' }
+        );
+      if (errRegla) throw errRegla;
+    }
+  },
+
+  // Conteo liviano para el aviso del dashboard (head: no trae filas).
+  getPendingReviewCount: async (): Promise<number> => {
+    const { count, error } = await supabase
+      .from('fin_transactions')
+      .select('id', { count: 'exact', head: true })
+      .eq('needs_review', true);
+    if (error) throw error;
+    return count ?? 0;
+  },
 };
