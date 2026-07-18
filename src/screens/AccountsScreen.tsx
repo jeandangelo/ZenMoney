@@ -16,8 +16,8 @@ import { showAlert } from './AuthScreen';
 
 // Gestión de las dos entidades del modelo:
 //   Cuentas Digitales  = dónde está la plata (banco / app / efectivo).
-//   Cuentas (propósito) = para qué es la plata; opcionalmente ligadas a una
-//   cuenta digital y con monto propuesto definido por el usuario.
+//   Cuentas (propósito) = SOBRES: para qué es la plata, con monto de
+//   referencia mensual definido por el usuario (la app nunca sugiere montos).
 // Las cuentas no se borran (los movimientos las referencian): se desactivan.
 
 type Pestana = 'digitales' | 'proposito';
@@ -40,7 +40,6 @@ const AccountsScreen = ({ navigation }: any) => {
   const [nombre, setNombre] = useState('');
   const [tipoDigital, setTipoDigital] = useState<MoneyAccountTipo>('banco');
   const [montoPropuesto, setMontoPropuesto] = useState('');
-  const [linkedId, setLinkedId] = useState<string | null>(null);
 
   const cargar = useCallback(async () => {
     try {
@@ -65,7 +64,6 @@ const AccountsScreen = ({ navigation }: any) => {
     setNombre('');
     setTipoDigital('banco');
     setMontoPropuesto('');
-    setLinkedId(null);
   };
 
   const cambiarPestana = (p: Pestana) => {
@@ -83,7 +81,6 @@ const AccountsScreen = ({ navigation }: any) => {
     setEditandoId(b.id);
     setNombre(b.nombre);
     setMontoPropuesto(b.monto_propuesto != null ? String(b.monto_propuesto) : '');
-    setLinkedId(b.linked_money_account_id);
   };
 
   const guardar = async () => {
@@ -111,10 +108,9 @@ const AccountsScreen = ({ navigation }: any) => {
           await api.updateBudgetAccount(editandoId, {
             nombre: nombre.trim(),
             monto_propuesto: propuesto,
-            linked_money_account_id: linkedId,
           });
         } else {
-          await api.createBudgetAccount(nombre.trim(), linkedId, propuesto);
+          await api.createBudgetAccount(nombre.trim(), propuesto);
         }
       }
       limpiarFormulario();
@@ -227,48 +223,14 @@ const AccountsScreen = ({ navigation }: any) => {
             ))}
           </View>
         ) : (
-          <View>
-            <TextInput
-              style={GLOBAL_STYLES.input}
-              value={montoPropuesto}
-              onChangeText={setMontoPropuesto}
-              placeholder="MONTO PROPUESTO MENSUAL (OPCIONAL)"
-              placeholderTextColor={ZM_COLORS.DIM_GRAY}
-              keyboardType="number-pad"
-            />
-            <Text style={{ color: ZM_COLORS.DIM_GRAY, fontSize: 12, marginBottom: 8, fontFamily: 'monospace' }}>
-              VIVE EN (OPCIONAL):
-            </Text>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 4 }}>
-              {moneyAccounts
-                .filter((m) => m.activa)
-                .map((m) => (
-                  <TouchableOpacity
-                    key={m.id}
-                    onPress={() => setLinkedId(linkedId === m.id ? null : m.id)}
-                    style={{
-                      paddingVertical: 10,
-                      paddingHorizontal: 14,
-                      marginRight: 8,
-                      marginBottom: 8,
-                      borderWidth: 2,
-                      borderColor: linkedId === m.id ? ZM_COLORS.GOLD : ZM_COLORS.BORDER,
-                      backgroundColor: linkedId === m.id ? ZM_COLORS.GOLD : ZM_COLORS.DARK_GRAY,
-                    }}
-                  >
-                    <Text
-                      style={{
-                        color: linkedId === m.id ? ZM_COLORS.DEEP_BLACK : ZM_COLORS.WHITE,
-                        fontWeight: '900',
-                        fontSize: 13,
-                      }}
-                    >
-                      {m.nombre}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-            </View>
-          </View>
+          <TextInput
+            style={GLOBAL_STYLES.input}
+            value={montoPropuesto}
+            onChangeText={setMontoPropuesto}
+            placeholder="MONTO DE REFERENCIA MENSUAL (OPCIONAL)"
+            placeholderTextColor={ZM_COLORS.DIM_GRAY}
+            keyboardType="number-pad"
+          />
         )}
 
         <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -318,33 +280,25 @@ const AccountsScreen = ({ navigation }: any) => {
           ))}
 
         {pestana === 'proposito' &&
-          budgetAccounts.map((b) => {
-            const vinculada = moneyAccounts.find((m) => m.id === b.linked_money_account_id);
-            return (
-              <TouchableOpacity
-                key={b.id}
-                style={[GLOBAL_STYLES.card, { opacity: b.activa ? 1 : 0.4, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}
-                onPress={() => editarProposito(b)}
-              >
-                <View>
-                  <Text style={{ color: ZM_COLORS.WHITE, fontWeight: 'bold', fontSize: 16 }}>{b.nombre}</Text>
-                  <Text style={{ color: ZM_COLORS.DIM_GRAY, fontSize: 12, fontFamily: 'monospace' }}>
-                    {[
-                      vinculada ? `VIVE EN ${vinculada.nombre.toUpperCase()}` : null,
-                      b.monto_propuesto != null ? `PROPUESTO ${formatCLP(b.monto_propuesto)}` : null,
-                    ]
-                      .filter(Boolean)
-                      .join(' · ') || 'SIN VÍNCULO NI MONTO'}
-                  </Text>
-                </View>
-                <TouchableOpacity onPress={() => alternarActiva(b.id, b.activa)}>
-                  <Text style={{ color: ZM_COLORS.DIM_GRAY, textDecorationLine: 'underline', fontSize: 12 }}>
-                    {b.activa ? 'desactivar' : 'activar'}
-                  </Text>
-                </TouchableOpacity>
+          budgetAccounts.map((b) => (
+            <TouchableOpacity
+              key={b.id}
+              style={[GLOBAL_STYLES.card, { opacity: b.activa ? 1 : 0.4, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}
+              onPress={() => editarProposito(b)}
+            >
+              <View>
+                <Text style={{ color: ZM_COLORS.WHITE, fontWeight: 'bold', fontSize: 16 }}>{b.nombre}</Text>
+                <Text style={{ color: ZM_COLORS.DIM_GRAY, fontSize: 12, fontFamily: 'monospace' }}>
+                  {b.monto_propuesto != null ? `REF MENSUAL ${formatCLP(b.monto_propuesto)}` : 'SIN MONTO DE REFERENCIA'}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => alternarActiva(b.id, b.activa)}>
+                <Text style={{ color: ZM_COLORS.DIM_GRAY, textDecorationLine: 'underline', fontSize: 12 }}>
+                  {b.activa ? 'desactivar' : 'activar'}
+                </Text>
               </TouchableOpacity>
-            );
-          })}
+            </TouchableOpacity>
+          ))}
 
         <View style={{ height: 40 }} />
       </ScrollView>

@@ -9,11 +9,17 @@ ante ambigüedad, preguntar antes de asumir).
 ## Modelo conceptual (terminología de la UI)
 - **Cuentas Digitales** (`fin_money_accounts`) = dónde está la plata
   (Banco de Chile, CuentaRUT, Tenpo, MercadoPago, efectivo…).
-- **Cuentas de propósito** (`fin_budget_accounts`) = para qué es la plata
-  (Transporte, Comida…). Opcionalmente ligadas a una cuenta digital y con
-  `monto_propuesto` que define el usuario — la app NUNCA sugiere montos.
+- **Cuentas de propósito / SOBRES** (`fin_budget_accounts`) = para qué es la
+  plata (Transporte, Comida…), con `monto_propuesto` como referencia mensual
+  que define el usuario — la app NUNCA sugiere montos.
+- **Asignaciones** (`fin_budget_assignments`) = destinar plata del "disponible
+  sin asignar" a un sobre ANTES de gastarla. No son transacciones: no mueven
+  plata de banco ni cambian el patrimonio. Saldo de sobre = asignado − gastado
+  (vista `fin_v_sobres`); disponible = patrimonio − suma de sobres
+  (vista `fin_v_disponible`). Un sobre puede quedar negativo: se informa en
+  rojo, nunca se bloquea. Corregir una asignación = borrar la fila.
 - Toda transacción pertenece a una cuenta digital; gastos/ingresos además
-  pueden apuntar a una cuenta de propósito.
+  pueden apuntar a una cuenta de propósito (y así descuentan del sobre).
 
 ## Invariantes que no se negocian
 1. **El saldo NUNCA se almacena en una fila.** Todo saldo es una vista SQL
