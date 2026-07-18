@@ -200,19 +200,24 @@ const DashboardScreen = ({ navigation }: any) => {
               <View key={s.id} style={GLOBAL_STYLES.card}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                   <Text style={{ color: ZM_COLORS.WHITE, fontWeight: 'bold', fontSize: 16 }}>{s.nombre}</Text>
-                  <Text
-                    style={{
-                      color: s.saldo_sobre < 0 ? ZM_COLORS.EXPENSE : ZM_COLORS.WHITE,
-                      fontWeight: '900',
-                      fontSize: 18,
-                    }}
-                  >
-                    {formatCLP(s.saldo_sobre)}
-                  </Text>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={{ color: ZM_COLORS.DIM_GRAY, fontSize: 10, fontFamily: 'monospace', letterSpacing: 1 }}>
+                      QUEDAN
+                    </Text>
+                    <Text
+                      style={{
+                        color: s.saldo_sobre < 0 ? ZM_COLORS.EXPENSE : ZM_COLORS.WHITE,
+                        fontWeight: '900',
+                        fontSize: 18,
+                      }}
+                    >
+                      {formatCLP(s.saldo_sobre)}
+                    </Text>
+                  </View>
                 </View>
                 <Text style={{ color: ZM_COLORS.DIM_GRAY, fontSize: 12, fontFamily: 'monospace', marginTop: 6 }}>
                   {[
-                    `ASIGNADO ${formatCLP(s.asignado_mes)}`,
+                    `GASTADO ESTE MES ${formatCLP(s.gastado_mes)}`,
                     s.monto_propuesto != null ? `REF ${formatCLP(s.monto_propuesto)}` : null,
                   ]
                     .filter(Boolean)

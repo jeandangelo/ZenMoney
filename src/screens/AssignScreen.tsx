@@ -20,14 +20,20 @@ import { showAlert } from './AuthScreen';
 // mismo estándar de velocidad que el gasto: menos de 10 segundos.
 // La pantalla NO navega atrás al guardar: refresca cifras y limpia el monto,
 // para encadenar varias asignaciones seguidas (Transporte, Comida, …).
-// En la UI nunca se muestra el signo del monto: se muestra la DIRECCIÓN
-// (asignar al sobre / devolver al disponible).
+//
+// Modo por defecto: DEJAR EN — el usuario dice en cuánto quiere dejar el
+// sobre y la app calcula sola la diferencia contra lo que queda hoy (puede
+// mover plata hacia el sobre o devolverla al disponible). Pedido por Jean
+// (jul-2026): pensar en "Transporte tiene $20.000" y no en sumas encadenadas.
+// El modo AGREGAR suma encima, para aportes puntuales.
+// Por debajo TODO sigue siendo el libro de asignaciones (auditable, sin
+// saldos almacenados): "dejar en" solo inserta la diferencia exacta.
 
-type Direccion = 'asignar' | 'devolver';
+type Modo = 'fijar' | 'sumar';
 
-const DIRECCIONES: { valor: Direccion; label: string }[] = [
-  { valor: 'asignar', label: 'ASIGNAR AL SOBRE' },
-  { valor: 'devolver', label: 'DEVOLVER AL DISPONIBLE' },
+const MODOS: { valor: Modo; label: string }[] = [
+  { valor: 'fijar', label: 'DEJAR EN' },
+  { valor: 'sumar', label: 'AGREGAR' },
 ];
 
 const AssignScreen = ({ navigation }: any) => {
@@ -37,12 +43,13 @@ const AssignScreen = ({ navigation }: any) => {
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
 
-  const [direccion, setDireccion] = useState<Direccion>('asignar');
+  const [modo, setModo] = useState<Modo>('fijar');
   const [monto, setMonto] = useState('');
   const [sobreId, setSobreId] = useState<string | null>(null);
   const [fecha, setFecha] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [nota, setNota] = useState('');
   const [verDetalle, setVerDetalle] = useState(false);
+  const [verHistorial, setVerHistorial] = useState(false);
 
   const cargar = useCallback(async () => {
     try {
@@ -68,19 +75,35 @@ const AssignScreen = ({ navigation }: any) => {
   // Previsualización en vivo: cómo quedarían el disponible y el sobre elegido.
   // Solo informa — si el disponible queda negativo se advierte en rojo, pero
   // la app nunca bloquea ni decide por el usuario.
+  // En modo "dejar en", lo que se inserta es la DIFERENCIA entre el monto
+  // objetivo y lo que queda hoy en el sobre (positiva o negativa).
   const montoNum = parseInt(monto.replace(/[.\s$]/g, ''), 10) || 0;
-  const montoFirmado = direccion === 'asignar' ? montoNum : -montoNum;
   const sobreElegido = useMemo(() => sobres.find((s) => s.id === sobreId), [sobres, sobreId]);
+  const montoFirmado =
+    modo === 'sumar'
+      ? montoNum
+      : sobreElegido
+        ? montoNum - sobreElegido.saldo_sobre
+        : 0;
   const disponibleResultante = disponible - montoFirmado;
   const saldoSobreResultante = sobreElegido ? sobreElegido.saldo_sobre + montoFirmado : null;
 
   const guardar = useCallback(async () => {
-    if (!montoNum || montoNum <= 0) {
+    if (!sobreId) {
+      showAlert('Falta el sobre', 'Elige un sobre primero.');
+      return;
+    }
+    // En "dejar en" el 0 es válido (vaciar el sobre); en "agregar" no.
+    if (modo === 'sumar' && montoNum <= 0) {
       showAlert('Falta el monto', 'Ingresa un monto mayor a cero.');
       return;
     }
-    if (!sobreId) {
-      showAlert('Falta el sobre', 'Elige a qué sobre va (o de cuál vuelve).');
+    if (modo === 'fijar' && monto.trim() === '') {
+      showAlert('Falta el monto', 'Ingresa en cuánto quieres dejar el sobre.');
+      return;
+    }
+    if (montoFirmado === 0) {
+      showAlert('Sin cambios', 'El sobre ya está en ese monto.');
       return;
     }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
@@ -105,7 +128,7 @@ const AssignScreen = ({ navigation }: any) => {
     } finally {
       setGuardando(false);
     }
-  }, [montoNum, montoFirmado, sobreId, fecha, nota, cargar]);
+  }, [modo, monto, montoNum, montoFirmado, sobreId, fecha, nota, cargar]);
 
   const eliminarAsignacion = useCallback(
     async (a: Assignment) => {
@@ -176,25 +199,26 @@ const AssignScreen = ({ navigation }: any) => {
           </Text>
         </View>
 
-        {/* Dirección */}
+        {/* Modo: DEJAR EN (por defecto) fija el sobre en un monto objetivo;
+            AGREGAR suma encima. La app calcula sola las diferencias. */}
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 12 }}>
-          {DIRECCIONES.map((d) => (
+          {MODOS.map((d) => (
             <TouchableOpacity
               key={d.valor}
-              onPress={() => setDireccion(d.valor)}
+              onPress={() => setModo(d.valor)}
               style={{
                 paddingVertical: 10,
                 paddingHorizontal: 14,
                 marginRight: 8,
                 marginBottom: 8,
                 borderWidth: 2,
-                borderColor: direccion === d.valor ? ZM_COLORS.GOLD : ZM_COLORS.BORDER,
-                backgroundColor: direccion === d.valor ? ZM_COLORS.GOLD : ZM_COLORS.DARK_GRAY,
+                borderColor: modo === d.valor ? ZM_COLORS.GOLD : ZM_COLORS.BORDER,
+                backgroundColor: modo === d.valor ? ZM_COLORS.GOLD : ZM_COLORS.DARK_GRAY,
               }}
             >
               <Text
                 style={{
-                  color: direccion === d.valor ? ZM_COLORS.DEEP_BLACK : ZM_COLORS.WHITE,
+                  color: modo === d.valor ? ZM_COLORS.DEEP_BLACK : ZM_COLORS.WHITE,
                   fontWeight: '900',
                   fontSize: 13,
                 }}
@@ -204,13 +228,18 @@ const AssignScreen = ({ navigation }: any) => {
             </TouchableOpacity>
           ))}
         </View>
+        <Text style={{ color: ZM_COLORS.DIM_GRAY, fontSize: 12, marginBottom: 8, fontFamily: 'monospace' }}>
+          {modo === 'fijar'
+            ? 'EL SOBRE QUEDARÁ CON ESTE MONTO PARA GASTAR:'
+            : 'ESTE MONTO SE SUMA A LO QUE YA TIENE EL SOBRE:'}
+        </Text>
 
         {/* Monto: teclado numérico directo, camino de 10 segundos */}
         <TextInput
           style={[GLOBAL_STYLES.input, { fontSize: 28, fontWeight: '900' }]}
           value={monto}
           onChangeText={setMonto}
-          placeholder="$ MONTO"
+          placeholder={modo === 'fijar' ? '$ MONTO OBJETIVO' : '$ MONTO A AGREGAR'}
           placeholderTextColor={ZM_COLORS.DIM_GRAY}
           keyboardType="number-pad"
           autoFocus
@@ -218,7 +247,7 @@ const AssignScreen = ({ navigation }: any) => {
 
         {/* Sobre */}
         <Text style={{ color: ZM_COLORS.DIM_GRAY, fontSize: 12, marginBottom: 8, fontFamily: 'monospace' }}>
-          {direccion === 'asignar' ? 'AL SOBRE:' : 'DESDE EL SOBRE:'}
+          SOBRE:
         </Text>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 4 }}>
           {sobres.map((s) => (
@@ -258,10 +287,15 @@ const AssignScreen = ({ navigation }: any) => {
           ))}
         </View>
 
-        {/* Previsualización del resultado */}
-        {montoNum > 0 && sobreElegido && (
+        {/* Previsualización del resultado: qué plata se mueve y cómo queda todo */}
+        {monto.trim() !== '' && sobreElegido && montoFirmado !== 0 && (
           <View style={[GLOBAL_STYLES.card, { borderColor: disponibleResultante < 0 ? ZM_COLORS.EXPENSE : ZM_COLORS.BORDER }]}>
-            <Text style={{ color: ZM_COLORS.DIM_GRAY, fontSize: 12, fontFamily: 'monospace' }}>
+            <Text style={{ color: ZM_COLORS.WHITE, fontSize: 13, fontFamily: 'monospace' }}>
+              {montoFirmado > 0
+                ? `Se moverán ${formatCLP(montoFirmado)} del disponible al sobre.`
+                : `Volverán ${formatCLP(-montoFirmado)} del sobre al disponible.`}
+            </Text>
+            <Text style={{ color: ZM_COLORS.DIM_GRAY, fontSize: 12, fontFamily: 'monospace', marginTop: 6 }}>
               QUEDARÍA → DISPONIBLE{' '}
               <Text style={{ color: disponibleResultante < 0 ? ZM_COLORS.EXPENSE : ZM_COLORS.WHITE, fontWeight: '900' }}>
                 {formatCLP(disponibleResultante)}
@@ -307,14 +341,22 @@ const AssignScreen = ({ navigation }: any) => {
 
         <TouchableOpacity style={GLOBAL_STYLES.primaryButton} onPress={guardar} disabled={guardando}>
           <Text style={GLOBAL_STYLES.primaryButtonText}>
-            {guardando ? 'GUARDANDO...' : direccion === 'asignar' ? 'ASIGNAR' : 'DEVOLVER'}
+            {guardando ? 'GUARDANDO...' : modo === 'fijar' ? 'DEJAR EN ESTE MONTO' : 'AGREGAR'}
           </Text>
         </TouchableOpacity>
 
-        {/* Últimas asignaciones: corregir un error = borrar la fila */}
+        {/* Historial de movimientos de asignación, colapsado: es contabilidad
+            interna (cada "dejar en" inserta su diferencia). Solo hace falta
+            abrirlo para borrar un error de dedo. */}
         {asignaciones.length > 0 && (
+          <TouchableOpacity onPress={() => setVerHistorial(!verHistorial)}>
+            <Text style={{ color: ZM_COLORS.DIM_GRAY, textDecorationLine: 'underline', marginTop: 20 }}>
+              {verHistorial ? '− ocultar movimientos de asignación' : '+ movimientos de asignación (para corregir errores)'}
+            </Text>
+          </TouchableOpacity>
+        )}
+        {verHistorial && asignaciones.length > 0 && (
           <View>
-            <Text style={GLOBAL_STYLES.sectionTitle}>ÚLTIMAS ASIGNACIONES</Text>
             {asignaciones.map((a) => (
               <View
                 key={a.id}
